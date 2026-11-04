@@ -27,8 +27,10 @@ function paletteFor(s,autoColors){const k=s.layers;if(s.palette==='auto')return 
  return resample(PRESETS[s.palette],k);}
 function toCfg(s){const d=s.detail-1,dpi=Math.min(100,Math.floor(1600/s.width));
  const bridge=s.bridge==='auto'?Math.min(0.125,Math.max(3/64,s.width/12/16)):+s.bridge;
- return{layers:s.layers,width_in:s.width,dpi,margin_in:0.5,bridge_in:bridge,blur:[2,2,1,1,0][d],mode_r:[3,2,2,1,1][d],min_feature_in:[0.08,0.06,0.04,0.03,0.02][d],
-  simplify:[1.2,0.9,0.7,0.5,0.4][d],remove_bg:s.rmbg,labels:s.labels,palette:paletteFor(s,images[cur]&&images[cur].autoColors)};}
+ return{layers:s.layers,width_in:s.width,dpi,margin_in:0.5,bridge_in:bridge,blur:[1,1,0,0,0][d],mode_r:[3,2,2,1,1][d],min_feature_in:[0.08,0.06,0.04,0.03,0.02][d],
+  smooth_s:[3,2.5,2,1.5,1][d],smooth_passes:[2,2,2,1,1][d],smooth_r:[30,26,22,18,14][d],
+  min_area_in2:+([0.25,0.15,0.08,0.04,0.02][d]*Math.sqrt(s.width/12)).toFixed(4),min_width_in:[0.125,0.1,0.0625,0.05,0.035][d],
+  simplify:[1.8,1.5,1.2,1.0,0.9][d],remove_bg:s.rmbg,labels:s.labels,palette:paletteFor(s,images[cur]&&images[cur].autoColors)};}
 async function decode(file,wpx){let src;try{src=await createImageBitmap(file,{imageOrientation:'from-image'});}catch(e){
  src=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('Cannot read '+file.name));im.src=URL.createObjectURL(file);});}
  const W=src.width||src.naturalWidth,H=src.height||src.naturalHeight,h=Math.max(1,Math.round(H*wpx/W));

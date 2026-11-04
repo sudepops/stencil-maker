@@ -20,9 +20,12 @@ function kmeans(lab,n,k,alpha){const R=rng(1);const idx=[];for(let i=0;i<n;i++)i
    as[i]=best;cnt[best]++;sum[best*3]+=samp[i*3];sum[best*3+1]+=samp[i*3+1];sum[best*3+2]+=samp[i*3+2];}
   let mv=0;for(let c=0;c<k;c++)if(cnt[c]){for(let q=0;q<3;q++){const v=sum[c*3+q]/cnt[c];mv=Math.max(mv,Math.abs(v-C[c*3+q]));C[c*3+q]=v;}}if(mv<0.1)break;}
  return C;}
-function modeFilter(lbl,w,h,k,r){const out=new Int8Array(lbl.length),cnt=new Int32Array(k+1);for(let y=0;y<h;y++)for(let x=0;x<w;x++){cnt.fill(0);
- for(let dy=-r;dy<=r;dy++){const yy=Math.min(h-1,Math.max(0,y+dy));for(let dx=-r;dx<=r;dx++){const xx=Math.min(w-1,Math.max(0,x+dx));cnt[lbl[yy*w+xx]+1]++;}}
- let b=0;for(let c=1;c<=k;c++)if(cnt[c]>cnt[b])b=c;out[y*w+x]=b-1;}return out;}
+function modeFilter(lbl,w,h,k,r){// sliding-window majority filter (labels -1..k-1)
+ const out=new Int8Array(lbl.length),cnt=new Int32Array(k+1),K=k+1;
+ for(let y=0;y<h;y++){cnt.fill(0);const y0=Math.max(0,y-r),y1=Math.min(h-1,y+r);
+  const col=(x,s)=>{const xx=x<0?0:x>=w?w-1:x;for(let yy=y-r;yy<=y+r;yy++){const yc=yy<0?0:yy>=h?h-1:yy;cnt[lbl[yc*w+xx]+1]+=s;}};
+  for(let x=-r;x<=r;x++)col(x,1);
+  for(let x=0;x<w;x++){let b=0;for(let c=1;c<K;c++)if(cnt[c]>cnt[b])b=c;out[y*w+x]=b-1;col(x-r,-1);col(x+r+1,1);}}return out;}
 function morph(m,w,h,val){// val=1 dilate, 0 erode (3x3), out-of-bounds ignored
  const o=new Uint8Array(m.length);for(let y=0;y<h;y++)for(let x=0;x<w;x++){let r=val?0:1;
  for(let dy=-1;dy<=1&&r!==val;dy++){const yy=y+dy;if(yy<0||yy>=h)continue;for(let dx=-1;dx<=1;dx++){const xx=x+dx;if(xx<0||xx>=w)continue;if(m[yy*w+xx]===val){r=val;break;}}}o[y*w+x]=r;}return o;}
@@ -38,7 +41,9 @@ function stamp(m,w,h,x0,y0,x1,y1,bw){const r=Math.max(1,bw/2),n=Math.ceil(Math.h
  for(let s=0;s<=n;s++){const cx=x0+(x1-x0)*s/n,cy=y0+(y1-y0)*s/n;for(let dy=-ri;dy<=ri;dy++)for(let dx=-ri;dx<=ri;dx++){if(dx*dx+dy*dy>r*r+0.5)continue;
   const xx=Math.round(cx+dx),yy=Math.round(cy+dy);if(xx>=0&&yy>=0&&xx<w&&yy<h)m[yy*w+xx]=0;}}}
 // material (0) must be one 4-connected piece; everything touching the image edge joins the sheet margin
-function bridge(m,w,h,bw){let nb=0;for(let it=0;it<30;it++){const L=label(m,w,h,0,false);const main=L.border;
+function bridge(m,w,h,bw,minA){let nb=0;minA=minA||0;
+ {const L=label(m,w,h,0,false);for(let i=0;i<m.length;i++){const c=L.lab[i];if(c>=0&&!L.border[c]&&L.sizes[c]<Math.max(minA*0.5,(3*bw)*(3*bw)))m[i]=1;}}// fill tiny material islands instead of bridging them
+for(let it=0;it<30;it++){const L=label(m,w,h,0,false);const main=L.border;
  const isl=[];for(let c=0;c<L.sizes.length;c++)if(!main[c])isl.push(c);if(!isl.length)return{m,nb,left:0};
  // nearest main-material pixel for every pixel (propagated BFS, Euclidean to source)
  const N=w*h,src=new Int32Array(N).fill(-1),dist=new Float32Array(N).fill(1e30);let q=new Int32Array(N),qh=0,qt=0;
@@ -54,8 +59,9 @@ function bridge(m,w,h,bw){let nb=0;for(let it=0;it<30;it++){const L=label(m,w,h,
   if(!b){b={i,d:dist[i],sx:0,sy:0,n:0};best.set(c,b);}if(dist[i]<b.d){b.d=dist[i];b.i=i;}b.sx+=i%w;b.sy+=(i-i%w)/w;b.n++;}
  for(const[c,b]of best){const x0=b.i%w,y0=(b.i-x0)/w;let x1,y1;if(src[b.i]>=0){x1=src[b.i]%w;y1=(src[b.i]-x1)/w;}else{// nearest frame edge
    const ds=[x0,w-1-x0,y0,h-1-y0],k=ds.indexOf(Math.min(...ds));x1=k===0?0:k===1?w-1:x0;y1=k===2?0:k===3?h-1:y0;}
+  if(minA&&b.n<minA*1.5&&Math.sqrt(b.d)>8*bw){for(let i=0;i<N;i++)if(L.lab[i]===c)m[i]=1;continue;}
   stamp(m,w,h,x0,y0,x1,y1,bw);nb++;
-  if(b.n>(40*bw)*(40*bw)){// large island: second bridge on the far side
+  if(b.n>(60*bw)*(60*bw)){// large island: second bridge on the far side
    const cx=b.sx/b.n,cy=b.sy/b.n,vx=x0-cx,vy=y0-cy;let bi=-1,bd=1e30;
    for(let i=0;i<N;i++){if(L.lab[i]!==c)continue;const x=i%w,y=(i-x)/w;if((x-cx)*vx+(y-cy)*vy<0&&dist[i]<bd&&src[i]>=0){bd=dist[i];bi=i;}}
    if(bi>=0){const xa=bi%w,ya=(bi-xa)/w,s=src[bi];stamp(m,w,h,xa,ya,s%w,(s-s%w)/w,bw);nb++;}}}}
@@ -74,7 +80,7 @@ function trace(m,w,h,tol){const W=w+1;const nx1=new Int32Array((w+1)*(h+1)).fill
   const P=pts.map(p=>[p%W,(p-p%W)/W]);// keep corners only
   const C=[];for(let i=0;i<P.length;i++){const a=P[(i+P.length-1)%P.length],b=P[i],c=P[(i+1)%P.length];if((b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0])!==0)C.push(b);}
   if(C.length>=3)paths.push(simplify(C,tol));}}
- return paths.filter(p=>p.length>=3).map(p=>'M'+p.map(q=>q[0].toFixed(1).replace(/\.0$/,'')+' '+q[1].toFixed(1).replace(/\.0$/,'')).join('L')+'Z').join('');}
+ return paths.filter(p=>p.length>=3).map(smoothPath).join('');}
 function dp(P,a,b,tol,keep){let md=0,mi=-1;const[x1,y1]=P[a],[x2,y2]=P[b],L=Math.hypot(x2-x1,y2-y1)||1;
  for(let i=a+1;i<b;i++){const d=Math.abs((x2-x1)*(y1-P[i][1])-(x1-P[i][0])*(y2-y1))/L;if(d>md){md=d;mi=i;}}
  if(md>tol){keep[mi]=1;dp(P,a,mi,tol,keep);dp(P,mi,b,tol,keep);}}
@@ -104,13 +110,58 @@ function removeBg(d,w,h){// flood-fill plain background from the photo edges (co
  let removed=0;while(st.length){const p=st.pop();if(seen[p]||!ok(p))continue;seen[p]=1;d[p*4+3]=0;removed++;const x=p%w,y=(p-x)/w;
   if(x>0)st.push(p-1);if(x<w-1)st.push(p+1);if(y>0)st.push(p-w);if(y<h-1)st.push(p+w);}
  if(removed>n*0.9)for(let i=0;i<n;i++)d[i*4+3]=255;}// nothing sensible left: keep everything
+// ---- v2 cleanup: edge-preserving smoothing, label-map despeckle, sliver removal
+function bilateral(rgba,w,h,sigS,sigR){const R=Math.max(1,Math.ceil(sigS*2)),n=w*h,out=new Uint8ClampedArray(rgba.length);
+ const r8=new Int32Array(n),g8=new Int32Array(n),b8=new Int32Array(n);for(let i=0;i<n;i++){r8[i]=rgba[i*4];g8[i]=rgba[i*4+1];b8[i]=rgba[i*4+2];}
+ const ox=[],oy=[],ow=[];for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){const d2=dx*dx+dy*dy;if(d2>R*R+R)continue;ox.push(dx);oy.push(dy);ow.push(Math.exp(-d2/(2*sigS*sigS)));}
+ const K=ox.length,OX=Int32Array.from(ox),OY=Int32Array.from(oy),OW=Float32Array.from(ow),OF=new Int32Array(K);for(let k=0;k<K;k++)OF[k]=OY[k]*w+OX[k];
+ const LUT=new Float32Array(766);for(let i=0;i<766;i++){const t=i/(sigR*1.7);LUT[i]=Math.exp(-t*t/2);}
+ for(let y=0;y<h;y++){const yin=y>=R&&y<h-R;for(let x=0;x<w;x++){const i=y*w+x,r0=r8[i],g0=g8[i],b0=b8[i];let sr=0,sg=0,sb=0,sw=0;
+  if(yin&&x>=R&&x<w-R){for(let k=0;k<K;k++){const p=i+OF[k],r=r8[p],g=g8[p],b=b8[p];let d=r-r0;if(d<0)d=-d;let e=g-g0;if(e<0)e=-e;let f=b-b0;if(f<0)f=-f;
+    const wt=OW[k]*LUT[d+e+f];sr+=wt*r;sg+=wt*g;sb+=wt*b;sw+=wt;}}
+  else{for(let k=0;k<K;k++){const xx=x+OX[k],yy=y+OY[k];if(xx<0||yy<0||xx>=w||yy>=h)continue;const p=yy*w+xx,r=r8[p],g=g8[p],b=b8[p];let d=r-r0;if(d<0)d=-d;let e=g-g0;if(e<0)e=-e;let f=b-b0;if(f<0)f=-f;
+    const wt=OW[k]*LUT[d+e+f];sr+=wt*r;sg+=wt*g;sb+=wt*b;sw+=wt;}}
+  const c=i*4;out[c]=sr/sw;out[c+1]=sg/sw;out[c+2]=sb/sw;out[c+3]=rgba[c+3];}}return out;}
+// chamfer (3-4) distance in px from every pixel to the nearest pixel where src[i] is truthy
+function distTo(src,w,h){const n=w*h,D=new Int32Array(n);for(let i=0;i<n;i++)D[i]=src[i]?0:1e8;
+ for(let y=0;y<h;y++){const r=y*w;for(let x=0;x<w;x++){const i=r+x;let d=D[i];if(d===0)continue;let t;
+  if(x>0){t=D[i-1]+3;if(t<d)d=t;}if(y>0){t=D[i-w]+3;if(t<d)d=t;if(x>0){t=D[i-w-1]+4;if(t<d)d=t;}if(x<w-1){t=D[i-w+1]+4;if(t<d)d=t;}}D[i]=d;}}
+ for(let y=h-1;y>=0;y--){const r=y*w;for(let x=w-1;x>=0;x--){const i=r+x;let d=D[i];if(d===0)continue;let t;
+  if(x<w-1){t=D[i+1]+3;if(t<d)d=t;}if(y<h-1){t=D[i+w]+3;if(t<d)d=t;if(x<w-1){t=D[i+w+1]+4;if(t<d)d=t;}if(x>0){t=D[i+w-1]+4;if(t<d)d=t;}}D[i]=d;}}
+ const F=new Float32Array(n);for(let i=0;i<n;i++)F[i]=D[i]/3;return F;}
+// relabel pixels set to -2 from their nearest labelled neighbours (BFS)
+function fillUnassigned(lbl,w,h){const n=w*h,q=new Int32Array(n);let qt=0,qh=0;
+ for(let i=0;i<n;i++)if(lbl[i]>=0){const x=i%w;if((x>0&&lbl[i-1]===-2)||(x<w-1&&lbl[i+1]===-2)||(i>=w&&lbl[i-w]===-2)||(i<n-w&&lbl[i+w]===-2))q[qt++]=i;}
+ while(qh<qt){const p=q[qh++],x=p%w,v=lbl[p];const nb=[x>0?p-1:-1,x<w-1?p+1:-1,p-w,p+w];for(const t of nb){if(t<0||t>=n||lbl[t]!==-2)continue;lbl[t]=v;q[qt++]=t;}}
+ for(let i=0;i<n;i++)if(lbl[i]===-2)lbl[i]=0;}
+// per-label morphological opening: removes slivers thinner than 2r; freed pixels go to neighbours
+function removeSlivers(lbl,w,h,k,r){if(r<1)return;const n=w*h,m=new Uint8Array(n),core=new Uint8Array(n),drop=new Uint8Array(n);
+ for(let t=0;t<k;t++){let any=false;for(let i=0;i<n;i++){const o=lbl[i]===t;m[i]=o?0:1;if(o)any=true;}if(!any)continue;
+  const de=distTo(m,w,h);for(let i=0;i<n;i++)core[i]=de[i]>r?1:0;const dd=distTo(core,w,h);
+  for(let i=0;i<n;i++)if(lbl[i]===t&&dd[i]>r+0.5)drop[i]=1;}
+ for(let i=0;i<n;i++)if(drop[i])lbl[i]=-2;fillUnassigned(lbl,w,h);}
+// merge connected regions smaller than minA px into the label they share the most border with
+function mergeSmall(lbl,w,h,k,minA){const n=w*h;for(let it=0;it<8;it++){const cid=new Int32Array(n).fill(-1),sizes=[],st=new Int32Array(n);
+  for(let s=0;s<n;s++){if(cid[s]>=0||lbl[s]<0)continue;const id=sizes.length,v=lbl[s];let sp=0,sz=0;st[sp++]=s;cid[s]=id;
+   while(sp){const p=st[--sp];sz++;const x=p%w;const nb=[x>0?p-1:-1,x<w-1?p+1:-1,p>=w?p-w:-1,p<n-w?p+w:-1];for(const q of nb)if(q>=0&&cid[q]<0&&lbl[q]===v){cid[q]=id;st[sp++]=q;}}sizes.push(sz);}
+  const small=new Int32Array(sizes.length).fill(-1);let ns=0;for(let c=0;c<sizes.length;c++)if(sizes[c]<minA)small[c]=ns++;if(!ns)return;
+  const bc=new Float64Array(ns*k);for(let p=0;p<n;p++){const c=cid[p];if(c<0||small[c]<0)continue;const x=p%w;const nb=[x>0?p-1:-1,x<w-1?p+1:-1,p>=w?p-w:-1,p<n-w?p+w:-1];
+   for(const q of nb)if(q>=0&&lbl[q]>=0&&cid[q]!==c)bc[small[c]*k+lbl[q]]+=sizes[cid[q]]>=minA?2:1;}
+  const to=new Int32Array(ns).fill(-1);for(let s=0;s<ns;s++){let b=-1,bv=0;for(let t=0;t<k;t++)if(bc[s*k+t]>bv){bv=bc[s*k+t];b=t;}to[s]=b;}
+  let ch=0;for(let p=0;p<n;p++){const c=cid[p];if(c<0||small[c]<0)continue;const t=to[small[c]];if(t>=0&&t!==lbl[p]){lbl[p]=t;ch++;}}if(!ch)return;}}
+// smooth closed outline: quadratic B-spline through edge midpoints, sharp corners kept
+function smoothPath(P){const n=P.length;if(n<4)return 'M'+P.map(f2).join('L')+'Z';const mid=i=>{const a=P[i%n],b=P[(i+1)%n];return[(a[0]+b[0])/2,(a[1]+b[1])/2];};
+ let s='M'+f2(mid(n-1));for(let i=0;i<n;i++){const a=P[(i+n-1)%n],b=P[i],c=P[(i+1)%n];const ux=b[0]-a[0],uy=b[1]-a[1],vx=c[0]-b[0],vy=c[1]-b[1];
+  const cos=(ux*vx+uy*vy)/(Math.hypot(ux,uy)*Math.hypot(vx,vy)||1);s+=cos<-0.3?'L'+f2(b)+'L'+f2(mid(i)):'Q'+f2(b)+' '+f2(mid(i));}return s+'Z';}
+function f2(q){return (Math.round(q[0]*10)/10)+' '+(Math.round(q[1]*10)/10);}
 self.onmessage=e=>{const{id,w,h,data,cfg,name}=e.data;const t0=Date.now();const P=(f,stage)=>self.postMessage({id,progress:f,stage});
  try{const n=w*h,k=cfg.layers;P(0.02,'Blurring');
   if(cfg.remove_bg)removeBg(data,w,h);const hasB=(()=>{for(let i=3;i<data.length;i+=4)if(data[i]<128)return true;return false;})();
-  let img=data;for(let b=0;b<cfg.blur;b++)img=boxBlur(img,w,h);P(0.08,'Finding tones');const lab=toLab(img,n);const C=kmeans(lab,n,k,hasB?data:null);
+  let img=data;if(cfg.smooth_s){P(0.03,'Smoothing');for(let b=0;b<(cfg.smooth_passes||1);b++)img=bilateral(img,w,h,cfg.smooth_s,cfg.smooth_r||25);}for(let b=0;b<cfg.blur;b++)img=boxBlur(img,w,h);P(0.08,'Finding tones');const lab=toLab(img,n);const C=kmeans(lab,n,k,hasB?data:null);
   const order=[...Array(k).keys()].sort((a,b)=>C[b*3]-C[a*3]);let lbl=new Int8Array(n);
   for(let i=0;i<n;i++){if(hasB&&data[i*4+3]<=127){lbl[i]=-1;continue;}let best=0,bd=1e30;for(let r=0;r<k;r++){const c=order[r];const a=lab[i*3]-C[c*3],b=lab[i*3+1]-C[c*3+1],d=lab[i*3+2]-C[c*3+2];const dd=a*a+b*b+d*d;if(dd<bd){bd=dd;best=r;}}lbl[i]=best;}
-  P(0.2,'Cleaning specks');lbl=modeFilter(lbl,w,h,k,cfg.mode_r||2);
+  P(0.2,'Cleaning specks');lbl=modeFilter(lbl,w,h,k,cfg.mode_r||2);const minA=Math.round((cfg.min_area_in2||0)*cfg.dpi*cfg.dpi);
+  if(minA)mergeSmall(lbl,w,h,k,minA);if(cfg.min_width_in){P(0.22,'Removing slivers');removeSlivers(lbl,w,h,k,cfg.min_width_in*cfg.dpi/2);}if(minA)mergeSmall(lbl,w,h,k,minA);
   const sum=new Float64Array(k*3),cnt=new Float64Array(k);for(let i=0;i<n;i++){const t=lbl[i];if(t<0)continue;cnt[t]++;for(let q=0;q<3;q++)sum[t*3+q]+=data[i*4+q];}
   let colors=[...Array(k).keys()].map(t=>hex(cnt[t]?[sum[t*3]/cnt[t],sum[t*3+1]/cnt[t],sum[t*3+2]/cnt[t]]:[128,128,128]));
   if(cfg.palette&&cfg.palette.length>=k){// tones (light->dark) take the chosen paint colors, sorted light->dark
@@ -119,7 +170,7 @@ self.onmessage=e=>{const{id,w,h,data,cfg,name}=e.data;const t0=Date.now();const 
   const minpx=Math.round((cfg.min_feature_in*cfg.dpi)**2*4),bw=cfg.bridge_in*cfg.dpi;
   const tones=[...Array(k).keys()].slice(hasB?0:1);const layers=[];
   tones.forEach((t,li)=>{P(0.25+0.7*li/tones.length,`Layer ${li+1} of ${tones.length}`);let m=new Uint8Array(n);for(let i=0;i<n;i++)m[i]=lbl[i]===t?1:0;
-   m=clean(m,w,h,minpx);const b=bridge(m,w,h,bw);const d=trace(b.m,w,h,cfg.simplify);
+   m=clean(m,w,h,minpx);const b=bridge(m,w,h,bw,minA);const d=trace(b.m,w,h,cfg.simplify);
    layers.push({svg:svg(d,cfg,h,li+1,tones.length,colors[t],name),mask:b.m,color:colors[t],bridges:b.nb,islands:b.left});});
   self.postMessage({id,done:true,w,h,base:hasB?null:colors[0],colors,layers,ms:Date.now()-t0},layers.map(l=>l.mask.buffer));
  }catch(err){self.postMessage({id,error:String(err&&err.stack||err)});}};
