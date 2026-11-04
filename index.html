@@ -1,0 +1,37 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stencil Maker</title><meta name="theme-color" content="#222831">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Stencil Maker">
+<link rel="stylesheet" href="style.css"></head><body>
+<header><h1>Stencil Maker</h1></header>
+<main>
+<label class="big primary" id="pickLbl">📷 Pick photos<input id="pick" type="file" accept="image/*" multiple hidden></label>
+<section id="controls" class="card">
+ <div class="scope"><span id="scopeTxt">Settings for: all photos</span> <button id="resetOne" class="small" hidden>Use batch settings</button></div>
+ <label>Colors <b id="layersV">4</b><input id="layers" type="range" min="2" max="12" value="4"></label>
+ <label>Palette<select id="palette"></select></label>
+ <div id="swatches" class="swatches"></div>
+ <p class="hint" id="swHint">Tap a swatch to change its paint. Long-press the photo preview to pick a color from it.</p>
+ <label>Detail <b id="detailV">3</b><input id="detail" type="range" min="1" max="5" value="3"></label>
+ <label>Width (in) <b id="widthV">12</b><input id="width" type="range" min="4" max="36" step="0.5" value="12"></label>
+ <label>Bridges<select id="bridge"><option value="auto">Auto</option><option value="0.046875">3/64 in</option><option value="0.0625" selected>1/16 in</option><option value="0.125">1/8 in</option><option value="0.25">1/4 in</option></select></label>
+ <label class="row"><input id="rmbg" type="checkbox"> Remove plain background</label>
+ <label class="row"><input id="labels" type="checkbox" checked> Print layer labels (blue, not cut)</label>
+</section>
+<section id="preview" class="card" hidden>
+ <div class="nav"><button id="prev" class="small">◀</button><span id="imgName"></span><button id="next" class="small">▶</button></div>
+ <div class="status" id="pstatus"></div>
+ <canvas id="comp"></canvas>
+ <div id="layerList" class="layers"></div>
+</section>
+<button class="big primary" id="run" disabled>Make stencils for all</button>
+<div id="barWrap" class="bar" hidden><div id="bar"></div><span id="barTxt"></span></div>
+<button class="big" id="dl" disabled>⬇ Download all (ZIP)</button>
+<button class="big" id="share" disabled hidden>Share ZIP</button>
+<p class="hint">Everything runs on your phone. No photos leave the device. Works offline once loaded.</p>
+</main>
+<input id="colorPick" type="color" hidden>
+<script src="lib/jszip.min.js"></script><script src="app.js"></script></body></html>

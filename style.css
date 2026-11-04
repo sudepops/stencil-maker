@@ -1,0 +1,17 @@
+*{box-sizing:border-box}body{margin:0;font:17px/1.4 -apple-system,system-ui,Roboto,sans-serif;background:#f3f4f6;color:#1f2328;padding-bottom:env(safe-area-inset-bottom)}
+header{background:#222831;color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 10px}h1{margin:0;font-size:22px}
+main{max-width:720px;margin:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+.big{display:block;width:100%;min-height:58px;font-size:20px;font-weight:600;border:0;border-radius:14px;background:#dfe3e8;color:#1f2328;text-align:center;padding:16px;cursor:pointer}
+.big.primary{background:#d62828;color:#fff}.big:disabled{opacity:.45}
+.small{min-width:44px;min-height:40px;border:0;border-radius:10px;background:#dfe3e8;font-size:16px}
+.card{background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 3px #0002;display:flex;flex-direction:column;gap:10px}
+label{display:flex;flex-direction:column;gap:4px;font-weight:600}label.row{flex-direction:row;align-items:center;gap:10px}
+input[type=range]{width:100%;height:36px}input[type=checkbox]{width:26px;height:26px}select{font-size:17px;min-height:44px;border-radius:10px}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px}.swatches button{height:44px;border-radius:10px;border:2px solid #0003}
+.note{background:#fff4d6;border-radius:10px;padding:8px;margin:0;font-size:15px}.hint{font-size:14px;color:#5a6270;margin:0}
+.scope{display:flex;justify-content:space-between;align-items:center;font-size:15px;color:#5a6270}
+canvas#comp{width:100%;border-radius:8px;background:#eee;touch-action:manipulation}
+.layers{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.layers figure{margin:0;background:#fafafa;border-radius:8px;padding:4px;font-size:13px}.layers img{width:100%;display:block;background:#fff}
+.nav{display:flex;justify-content:space-between;align-items:center;gap:8px}#imgName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.status{font-size:14px;color:#5a6270;min-height:20px}.thumbs{display:flex;gap:6px;overflow-x:auto}
+.bar{position:relative;height:30px;background:#dfe3e8;border-radius:15px;overflow:hidden}#bar{height:100%;width:0;background:#2a9d8f;transition:width .2s}#barTxt{position:absolute;inset:0;text-align:center;line-height:30px;font-size:14px;font-weight:600}
