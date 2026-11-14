@@ -40,32 +40,6 @@ function clean(m,w,h,minpx){m=morph(morph(m,w,h,0),w,h,1);m=morph(morph(m,w,h,1)
 function stamp(m,w,h,x0,y0,x1,y1,bw){const r=Math.max(1,bw/2),n=Math.ceil(Math.hypot(x1-x0,y1-y0))*2+1,ri=Math.ceil(r);
  for(let s=0;s<=n;s++){const cx=x0+(x1-x0)*s/n,cy=y0+(y1-y0)*s/n;for(let dy=-ri;dy<=ri;dy++)for(let dx=-ri;dx<=ri;dx++){if(dx*dx+dy*dy>r*r+0.5)continue;
   const xx=Math.round(cx+dx),yy=Math.round(cy+dy);if(xx>=0&&yy>=0&&xx<w&&yy<h)m[yy*w+xx]=0;}}}
-// material (0) must be one 4-connected piece; everything touching the image edge joins the sheet margin
-function bridge(m,w,h,bw,minA){let nb=0;minA=minA||0;
- {const L=label(m,w,h,0,false);for(let i=0;i<m.length;i++){const c=L.lab[i];if(c>=0&&!L.border[c]&&L.sizes[c]<Math.max(minA*0.5,(3*bw)*(3*bw)))m[i]=1;}}// fill tiny material islands instead of bridging them
-for(let it=0;it<30;it++){const L=label(m,w,h,0,false);const main=L.border;
- const isl=[];for(let c=0;c<L.sizes.length;c++)if(!main[c])isl.push(c);if(!isl.length)return{m,nb,left:0};
- // nearest main-material pixel for every pixel (propagated BFS, Euclidean to source)
- const N=w*h,src=new Int32Array(N).fill(-1),dist=new Float32Array(N).fill(1e30);let q=new Int32Array(N),qh=0,qt=0;
- const anyMain=L.border.some(b=>b);
- for(let i=0;i<N;i++){const c=L.lab[i];if(c>=0&&main[c]){src[i]=i;dist[i]=0;q[qt++]=i;}}
- if(!anyMain){// no material touches the edge: treat the image frame itself as the sheet
-  for(let x=0;x<w;x++)for(const y of[0,h-1]){const i=y*w+x;src[i]=-2-i;}}
- const inq=new Uint8Array(N);for(let i=0;i<qt;i++)inq[q[i]]=1;
- while(qh!==qt){const p=q[qh];qh=(qh+1)%N;inq[p]=0;const s=src[p],sx=s%w,sy=(s-sx)/w,x=p%w,y=(p-x)/w;
-  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=x+dx,yy=y+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const t=yy*w+xx;
-   const d=(xx-sx)*(xx-sx)+(yy-sy)*(yy-sy);if(d<dist[t]){dist[t]=d;src[t]=s;if(!inq[t]){inq[t]=1;q[qt]=t;qt=(qt+1)%N;}}}}
- const best=new Map();for(let i=0;i<N;i++){const c=L.lab[i];if(c<0||main[c])continue;let b=best.get(c);
-  if(!b){b={i,d:dist[i],sx:0,sy:0,n:0};best.set(c,b);}if(dist[i]<b.d){b.d=dist[i];b.i=i;}b.sx+=i%w;b.sy+=(i-i%w)/w;b.n++;}
- for(const[c,b]of best){const x0=b.i%w,y0=(b.i-x0)/w;let x1,y1;if(src[b.i]>=0){x1=src[b.i]%w;y1=(src[b.i]-x1)/w;}else{// nearest frame edge
-   const ds=[x0,w-1-x0,y0,h-1-y0],k=ds.indexOf(Math.min(...ds));x1=k===0?0:k===1?w-1:x0;y1=k===2?0:k===3?h-1:y0;}
-  if(minA&&b.n<minA*1.5&&Math.sqrt(b.d)>8*bw){for(let i=0;i<N;i++)if(L.lab[i]===c)m[i]=1;continue;}
-  stamp(m,w,h,x0,y0,x1,y1,bw);nb++;
-  if(b.n>(60*bw)*(60*bw)){// large island: second bridge on the far side
-   const cx=b.sx/b.n,cy=b.sy/b.n,vx=x0-cx,vy=y0-cy;let bi=-1,bd=1e30;
-   for(let i=0;i<N;i++){if(L.lab[i]!==c)continue;const x=i%w,y=(i-x)/w;if((x-cx)*vx+(y-cy)*vy<0&&dist[i]<bd&&src[i]>=0){bd=dist[i];bi=i;}}
-   if(bi>=0){const xa=bi%w,ya=(bi-xa)/w,s=src[bi];stamp(m,w,h,xa,ya,s%w,(s-s%w)/w,bw);nb++;}}}}
- const L=label(m,w,h,0,false);return{m,nb,left:L.border.filter(b=>!b).length};}
 // pixel-edge contour tracing + Douglas-Peucker simplification
 function trace(m,w,h,tol){const W=w+1;const nx1=new Int32Array((w+1)*(h+1)).fill(-1),nx2=new Int32Array((w+1)*(h+1)).fill(-1);
  const add=(a,b)=>{if(nx1[a]<0)nx1[a]=b;else nx2[a]=b;};const cut=(x,y)=>x>=0&&y>=0&&x<w&&y<h&&m[y*w+x]===1;
@@ -101,15 +75,6 @@ function svg(d,cfg,h,li,n,color,name){const m=cfg.margin_in,s=1/cfg.dpi,W=cfg.wi
  `<rect id="sheet outline" x="0.005" y="0.005" width="${(W-0.01).toFixed(4)}" height="${(H-0.01).toFixed(4)}" fill="none" stroke="#999" stroke-width="0.01"/>\n`+
  `<g id="legend">${legend}</g>\n<g id="registration marks" style="fill:none;stroke:red;stroke-width:0.01">${marks}</g>\n`+
  `<g id="image" transform="translate(${m} ${m}) scale(${s.toFixed(6)})"><path fill="#bbbbbb" stroke="red" stroke-width="${(0.01*cfg.dpi).toFixed(3)}" fill-rule="evenodd" d="${d}"/></g>\n</svg>\n`;}
-function removeBg(d,w,h){// flood-fill plain background from the photo edges (colour distance in Lab)
- const n=w*h,lab=toLab(d,n),seen=new Uint8Array(n),st=[];const ref=[0,0,0];let c=0;
- for(let x=0;x<w;x++)for(const y of[0,h-1]){const i=y*w+x;for(let q=0;q<3;q++)ref[q]+=lab[i*3+q];c++;}
- for(let y=0;y<h;y++)for(const x of[0,w-1]){const i=y*w+x;for(let q=0;q<3;q++)ref[q]+=lab[i*3+q];c++;}
- for(let q=0;q<3;q++)ref[q]/=c;const ok=i=>{const a=lab[i*3]-ref[0],b=lab[i*3+1]-ref[1],e=lab[i*3+2]-ref[2];return a*a+b*b+e*e<400;};
- for(let x=0;x<w;x++)for(const y of[0,h-1])st.push(y*w+x);for(let y=0;y<h;y++)for(const x of[0,w-1])st.push(y*w+x);
- let removed=0;while(st.length){const p=st.pop();if(seen[p]||!ok(p))continue;seen[p]=1;d[p*4+3]=0;removed++;const x=p%w,y=(p-x)/w;
-  if(x>0)st.push(p-1);if(x<w-1)st.push(p+1);if(y>0)st.push(p-w);if(y<h-1)st.push(p+w);}
- if(removed>n*0.9)for(let i=0;i<n;i++)d[i*4+3]=255;}// nothing sensible left: keep everything
 // ---- v2 cleanup: edge-preserving smoothing, label-map despeckle, sliver removal
 function bilateral(rgba,w,h,sigS,sigR){const R=Math.max(1,Math.ceil(sigS*2)),n=w*h,out=new Uint8ClampedArray(rgba.length);
  const r8=new Int32Array(n),g8=new Int32Array(n),b8=new Int32Array(n);for(let i=0;i<n;i++){r8[i]=rgba[i*4];g8[i]=rgba[i*4+1];b8[i]=rgba[i*4+2];}
@@ -154,9 +119,89 @@ function smoothPath(P){const n=P.length;if(n<4)return 'M'+P.map(f2).join('L')+'Z
  let s='M'+f2(mid(n-1));for(let i=0;i<n;i++){const a=P[(i+n-1)%n],b=P[i],c=P[(i+1)%n];const ux=b[0]-a[0],uy=b[1]-a[1],vx=c[0]-b[0],vy=c[1]-b[1];
   const cos=(ux*vx+uy*vy)/(Math.hypot(ux,uy)*Math.hypot(vx,vy)||1);s+=cos<-0.3?'L'+f2(b)+'L'+f2(mid(i)):'Q'+f2(b)+' '+f2(mid(i));}return s+'Z';}
 function f2(q){return (Math.round(q[0]*10)/10)+' '+(Math.round(q[1]*10)/10);}
+// ---- v3 bridges: tone-aware island handling + length-capped minimum spanning bridges
+// m: 1=cut (paint), 0=material. Material islands (not touching the frame) must be tied to the sheet.
+// opt: {lbl,t,maxLen,fillA,bigA}. Sheets are painted light->dark, so an island made only of darker tones
+// can simply be cut open (later, darker sheets paint over it): no bridge needed.
+function bridge(m,w,h,bw,minA,opt){opt=opt||{};let nb=0;const lens=[];minA=minA||0;const N=w*h;
+ const maxLen=opt.maxLen||1e9,lbl=opt.lbl,t=opt.t,fillA=opt.fillA||0,bigA=opt.bigA||1e18;
+ const fillComp=(L,c)=>{for(let i=0;i<N;i++)if(L.lab[i]===c)m[i]=1;};
+ // 1) tiny islands -> fill; islands with (almost) no lighter tone -> fill (painted over by darker sheets)
+ {const L=label(m,w,h,0,false),nc=L.sizes.length,light=new Float64Array(nc);
+  if(lbl)for(let i=0;i<N;i++){const c=L.lab[i];if(c>=0&&!L.border[c]&&lbl[i]<t)light[c]++;}
+  for(let i=0;i<N;i++){const c=L.lab[i];if(c<0||L.border[c])continue;
+   if(L.sizes[c]<Math.max(minA*0.5,(3*bw)*(3*bw))||(lbl&&light[c]<fillA))m[i]=1;}}
+ for(let pass=0;pass<4;pass++){
+  const L=label(m,w,h,0,false),nc=L.sizes.length;let anyIsl=false;for(let c=0;c<nc;c++)if(!L.border[c]){anyIsl=true;break;}
+  if(!anyIsl)break;
+  // node id: 0 = sheet (frame + every border-touching piece), islands 1..
+  const node=new Int32Array(nc);let nn=1;for(let c=0;c<nc;c++)node[c]=L.border[c]?0:nn++;
+  const light=new Float64Array(nn);if(lbl)for(let i=0;i<N;i++){const c=L.lab[i];if(c>=0&&lbl[i]<t)light[node[c]]++;}
+  const area=new Float64Array(nn);for(let c=0;c<nc;c++)area[node[c]]+=L.sizes[c];
+  // nearest-material propagation (approx. Euclidean Voronoi)
+  const src=new Int32Array(N).fill(-1),dist=new Float32Array(N).fill(1e30),q=new Int32Array(N),inq=new Uint8Array(N);let qh=0,qt=0;
+  for(let i=0;i<N;i++)if(L.lab[i]>=0){src[i]=i;dist[i]=0;q[qt++]=i;inq[i]=1;}qt%=N;
+  let live=0;for(let i=0;i<N;i++)if(inq[i])live++;
+  while(live>0){const p=q[qh];qh=(qh+1)%N;inq[p]=0;live--;const s=src[p],sx=s%w,sy=(s-sx)/w,x=p%w,y=(p-x)/w;
+   for(let dy=-1;dy<=1;dy++){const yy=y+dy;if(yy<0||yy>=h)continue;for(let dx=-1;dx<=1;dx++){const xx=x+dx;if(xx<0||xx>=w||(!dx&&!dy))continue;const tt=yy*w+xx;
+    const d=(xx-sx)*(xx-sx)+(yy-sy)*(yy-sy);if(d<dist[tt]){dist[tt]=d;src[tt]=s;if(!inq[tt]){inq[tt]=1;q[qt]=tt;qt=(qt+1)%N;live++;}}}}}
+  // candidate edges between neighbouring Voronoi cells
+  const E=new Map();const add=(a,b,len,pa,pb)=>{if(a===b)return;const key=a<b?a*nn+b:b*nn+a;const e=E.get(key);if(!e||len<e.len)E.set(key,{a,b,len,pa,pb});};
+  for(let p=0;p<N;p++){const sp=src[p];if(sp<0)continue;const na=node[L.lab[sp]],x=p%w;
+   for(const qq of[x<w-1?p+1:-1,p+w<N?p+w:-1]){if(qq<0)continue;const sq=src[qq];if(sq<0)continue;const nb2=node[L.lab[sq]];if(na===nb2)continue;
+    const ax=sp%w,ay=(sp-ax)/w,bx=sq%w,by=(sq-bx)/w;add(na,nb2,Math.hypot(ax-bx,ay-by),sp,sq);}}
+  // islands to the frame (the sheet margin is material)
+  for(let i=0;i<N;i++){const c=L.lab[i];if(c<0||L.border[c])continue;const x=i%w,y=(i-x)/w;const ds=[x+1,w-x,y+1,h-y],k=ds.indexOf(Math.min(...ds));
+   const fx=k===0?0:k===1?w-1:x,fy=k===2?0:k===3?h-1:y;add(node[c],0,ds[k],i,-1-(fy*w+fx));}
+  const edges=[...E.values()].sort((a,b)=>a.len-b.len);
+  const par=Int32Array.from({length:nn},(_,i)=>i);const find=x=>{while(par[x]!==x){par[x]=par[par[x]];x=par[x];}return x;};
+  const used=[],first=new Map();
+  for(const e of edges){if(e.len>maxLen)break;const ra=find(e.a),rb=find(e.b);if(ra===rb)continue;par[ra]=rb;used.push(e);
+   for(const v of[e.a,e.b])if(v&&!first.has(v))first.set(v,e);}
+  // islands still loose: merge (fill) every one that is not a big lighter area; only big ones may get a longer link
+  const root0=find(0),fillNode=new Uint8Array(nn),bigLoose=new Set();
+  for(let v=1;v<nn;v++){if(find(v)===root0)continue;if((lbl?light[v]:area[v])<bigA)fillNode[v]=1;else bigLoose.add(v);}
+  if(bigLoose.size){const par2=Int32Array.from({length:nn},(_,i)=>i),f2=x=>{while(par2[x]!==x){par2[x]=par2[par2[x]];x=par2[x];}return x;};
+   for(const e of used){if(!fillNode[e.a]&&!fillNode[e.b])par2[f2(e.a)]=f2(e.b);}
+   const loose=()=>[...bigLoose].some(v=>f2(v)!==f2(0));
+   for(const e of edges){if(!loose())break;if(fillNode[e.a]||fillNode[e.b])continue;const ra=f2(e.a),rb=f2(e.b);if(ra===rb)continue;
+    if(ra!==f2(0)&&rb!==f2(0)&&![...bigLoose].some(v=>f2(v)===ra||f2(v)===rb))continue;par2[ra]=rb;used.push(e);}}
+  for(let i=0;i<N;i++){const c=L.lab[i];if(c>=0&&fillNode[node[c]])m[i]=1;}
+  // second short bridge on the far side of big islands (keeps them from flapping)
+  const extra=[];const isUsed=new Set(used);
+  for(const[v,e1]of first){if(fillNode[v]||area[v]<(40*bw)*(40*bw))continue;const p1=e1.a===v?e1.pa:e1.pb,x1=p1%w,y1=(p1-x1)/w,need=Math.sqrt(area[v])*0.6;
+   for(const e of edges){if(e.len>maxLen)break;if(isUsed.has(e)||(e.a!==v&&e.b!==v))continue;const o=e.a===v?e.b:e.a;if(fillNode[o])continue;const p=e.a===v?e.pa:e.pb,x=p%w,y=(p-x)/w;
+    if(Math.hypot(x-x1,y-y1)>need){extra.push(e);isUsed.add(e);break;}}}
+  for(const e of used.concat(extra)){if(fillNode[e.a]||fillNode[e.b])continue;const pt=p=>p>=0?[p%w,(p-p%w)/w]:[(-1-p)%w,((-1-p)-((-1-p)%w))/w];
+   const[x0,y0]=pt(e.pa),[x1,y1]=pt(e.pb);stamp(m,w,h,x0,y0,x1,y1,bw);nb++;lens.push(e.len);}}
+ const L=label(m,w,h,0,false);let left=0;for(let c=0;c<L.sizes.length;c++)if(!L.border[c]){left++;}
+ if(left){for(let i=0;i<N;i++){const c=L.lab[i];if(c>=0&&!L.border[c])m[i]=1;}left=0;}// never ship loose pieces
+ return{m,nb,left,lens};}
+
+// ---- v3 plain-background removal: only the uniform region connected to the photo border is removed.
+// Busy backgrounds are detected and left alone. Returns {removed fraction, reason}.
+function removeBg(d,w,h){const n=w*h,lab=toLab(boxBlur(boxBlur(d,w,h),w,h),n);
+ const B=[];for(let x=0;x<w;x++){B.push(x);B.push((h-1)*w+x);}for(let y=1;y<h-1;y++){B.push(y*w);B.push(y*w+w-1);}
+ const med=q=>{const v=B.map(i=>lab[i*3+q]).sort((a,b)=>a-b);return v[v.length>>1];};const ref=[med(0),med(1),med(2)];
+ const de=new Float32Array(n);for(let i=0;i<n;i++){const a=lab[i*3]-ref[0],b=lab[i*3+1]-ref[1],c=lab[i*3+2]-ref[2];de[i]=Math.sqrt(a*a+b*b+c*c);}
+ let plain=0;for(const i of B)if(de[i]<10)plain++;const plainFrac=plain/B.length;
+ if(plainFrac<0.6)return{removed:0,reason:'busy background kept'};
+ // local edge strength (Lab step to right/down neighbours, max of the 4 links)
+ const g=new Float32Array(n);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;for(const j of[x<w-1?i+1:-1,y<h-1?i+w:-1]){if(j<0)continue;
+  const a=lab[i*3]-lab[j*3],b=lab[i*3+1]-lab[j*3+1],c=lab[i*3+2]-lab[j*3+2],s=Math.sqrt(a*a+b*b+c*c);if(s>g[i])g[i]=s;if(s>g[j])g[j]=s;}}
+ for(const tol of[9,6,4]){const R=new Uint8Array(n),st=[];for(const i of B)if(de[i]<tol&&g[i]<3)st.push(i);
+  while(st.length){const p=st.pop();if(R[p]||de[p]>=tol||g[p]>=3)continue;R[p]=1;const x=p%w;if(x>0)st.push(p-1);if(x<w-1)st.push(p+1);if(p>=w)st.push(p-w);if(p<n-w)st.push(p+w);}
+  // cleanup: opening (cuts thin leaks into the subject), keep only border-connected parts, then close small notches
+  let M=morph(morph(morph(morph(R,w,h,0),w,h,0),w,h,1),w,h,1);const L=label(M,w,h,1,false);for(let i=0;i<n;i++)if(M[i]&&!L.border[L.lab[i]])M[i]=0;
+  let cnt=0;for(let i=0;i<n;i++)if(M[i])cnt++;const frac=cnt/n;
+  if(frac>0.6)continue;// leaked into the subject: be stricter
+  if(frac<0.02)return{removed:0,reason:'no plain background found'};
+  for(let i=0;i<n;i++)if(M[i])d[i*4+3]=0;return{removed:frac,reason:'plain background removed'};}
+ return{removed:0,reason:'background too close to subject; kept'};}
+
 self.onmessage=e=>{const{id,w,h,data,cfg,name}=e.data;const t0=Date.now();const P=(f,stage)=>self.postMessage({id,progress:f,stage});
  try{const n=w*h,k=cfg.layers;P(0.02,'Blurring');
-  if(cfg.remove_bg)removeBg(data,w,h);const hasB=(()=>{for(let i=3;i<data.length;i+=4)if(data[i]<128)return true;return false;})();
+  const bgMode=cfg.bg||(cfg.remove_bg?'plain':'keep');let bgInfo=null;if(bgMode==='plain'){P(0.025,'Removing background');bgInfo=removeBg(data,w,h);}const hasB=(()=>{for(let i=3;i<data.length;i+=4)if(data[i]<128)return true;return false;})();
   let img=data;if(cfg.smooth_s){P(0.03,'Smoothing');for(let b=0;b<(cfg.smooth_passes||1);b++)img=bilateral(img,w,h,cfg.smooth_s,cfg.smooth_r||25);}for(let b=0;b<cfg.blur;b++)img=boxBlur(img,w,h);P(0.08,'Finding tones');const lab=toLab(img,n);const C=kmeans(lab,n,k,hasB?data:null);
   const order=[...Array(k).keys()].sort((a,b)=>C[b*3]-C[a*3]);let lbl=new Int8Array(n);
   for(let i=0;i<n;i++){if(hasB&&data[i*4+3]<=127){lbl[i]=-1;continue;}let best=0,bd=1e30;for(let r=0;r<k;r++){const c=order[r];const a=lab[i*3]-C[c*3],b=lab[i*3+1]-C[c*3+1],d=lab[i*3+2]-C[c*3+2];const dd=a*a+b*b+d*d;if(dd<bd){bd=dd;best=r;}}lbl[i]=best;}
@@ -167,10 +212,11 @@ self.onmessage=e=>{const{id,w,h,data,cfg,name}=e.data;const t0=Date.now();const 
   if(cfg.palette&&cfg.palette.length>=k){// tones (light->dark) take the chosen paint colors, sorted light->dark
    const pal=cfg.palette.slice(0,k).map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
    const Lp=pal.map(c=>toLab(new Uint8ClampedArray([c[0],c[1],c[2],255]),1)[0]);colors=[...Array(k).keys()].sort((a,b)=>Lp[b]-Lp[a]).map(i=>hex(pal[i]));}
-  const minpx=Math.round((cfg.min_feature_in*cfg.dpi)**2*4),bw=cfg.bridge_in*cfg.dpi;
+  const minpx=Math.round((cfg.min_feature_in*cfg.dpi)**2*4),bw=cfg.bridge_in*cfg.dpi,D2=cfg.dpi*cfg.dpi;
+  const fillA=Math.round((cfg.island_fill_in2!=null?cfg.island_fill_in2:0.05)*D2),bigA=Math.round((cfg.island_keep_in2!=null?cfg.island_keep_in2:1.5)*D2);
   const tones=[...Array(k).keys()].slice(hasB?0:1);const layers=[];
   tones.forEach((t,li)=>{P(0.25+0.7*li/tones.length,`Layer ${li+1} of ${tones.length}`);let m=new Uint8Array(n);for(let i=0;i<n;i++)m[i]=lbl[i]===t?1:0;
-   m=clean(m,w,h,minpx);const b=bridge(m,w,h,bw,minA);const d=trace(b.m,w,h,cfg.simplify);
-   layers.push({svg:svg(d,cfg,h,li+1,tones.length,colors[t],name),mask:b.m,color:colors[t],bridges:b.nb,islands:b.left});});
-  self.postMessage({id,done:true,w,h,base:hasB?null:colors[0],colors,layers,ms:Date.now()-t0},layers.map(l=>l.mask.buffer));
+   m=clean(m,w,h,minpx);const b=bridge(m,w,h,bw,minA,{lbl,t,maxLen:(cfg.max_bridge_in||0.25)*cfg.dpi,fillA:fillA,bigA:bigA});const d=trace(b.m,w,h,cfg.simplify);
+   layers.push({svg:svg(d,cfg,h,li+1,tones.length,colors[t],name),mask:b.m,color:colors[t],bridges:b.nb,islands:b.left,maxBridgeIn:b.lens.length?Math.max(...b.lens)/cfg.dpi:0,bridgeLensIn:b.lens.map(v=>+(v/cfg.dpi).toFixed(3))});});
+  self.postMessage({id,done:true,w,h,base:hasB?null:colors[0],colors,layers,bg:bgInfo,ms:Date.now()-t0},layers.map(l=>l.mask.buffer));
  }catch(err){self.postMessage({id,error:String(err&&err.stack||err)});}};

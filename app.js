@@ -9,11 +9,15 @@ const PRESETS={
  'Ocean blues':['#eaf6fb','#a9dcef','#5fb3d9','#2b7fb8','#174f86','#0b2a4a','#050f1c'],
  'Warm sunset':['#fff1c1','#ffd166','#f8961e','#f3722c','#d62828','#7b1e3a','#2d0f1f'],
  'Neon':['#f2ff00','#39ff14','#00fff0','#ff00e6','#8a00ff','#101010']};
-const DEFAULTS={layers:4,palette:'auto',custom:null,detail:3,width:12,bridge:'0.0625',rmbg:false,labels:true};
+const DEFAULTS={layers:4,palette:'auto',custom:null,detail:3,width:12,bridge:'0.0625',bg:'keep',labels:true};
 let batch={...DEFAULTS},images=[],cur=0,selSw=0;
 const worker=new Worker('worker.js');let jobId=0;const pending=new Map();
 worker.onmessage=e=>{const m=e.data,p=pending.get(m.id);if(!p)return;if(m.progress!==undefined){p.onp&&p.onp(m.progress,m.stage);return;}pending.delete(m.id);m.error?p.rej(new Error(m.error)):p.res(m);};
 let chain=Promise.resolve();
+// on-device subject cut-out (lazy: the model only loads the first time 'Remove any (AI)' is used)
+let segW=null,segId=0;const segPending=new Map();
+function segment(img){if(!segW){segW=new Worker('seg.js');segW.onmessage=e=>{const m=e.data,p=segPending.get(m.id);if(!p)return;segPending.delete(m.id);m.error?p.rej(new Error(m.error)):p.res(m);};}
+ const id=++segId,data=new Uint8ClampedArray(img.data);return new Promise((res,rej)=>{segPending.set(id,{res,rej});segW.postMessage({id,w:img.width,h:img.height,data},[data.buffer]);});}
 function runWorker(msg,onp){const id=++jobId;const job=()=>new Promise((res,rej)=>{pending.set(id,{res,rej,onp});worker.postMessage({...msg,id},[msg.data.buffer]);});
  const p=chain.then(job);chain=p.catch(()=>{});return p;}
 const settingsOf=i=>images[i]&&images[i].override||batch;
@@ -30,7 +34,8 @@ function toCfg(s){const d=s.detail-1,dpi=Math.min(100,Math.floor(1600/s.width));
  return{layers:s.layers,width_in:s.width,dpi,margin_in:0.5,bridge_in:bridge,blur:[1,1,0,0,0][d],mode_r:[3,2,2,1,1][d],min_feature_in:[0.08,0.06,0.04,0.03,0.02][d],
   smooth_s:[3,2.5,2,1.5,1][d],smooth_passes:[2,2,2,1,1][d],smooth_r:[30,26,22,18,14][d],
   min_area_in2:+([0.25,0.15,0.08,0.04,0.02][d]*Math.sqrt(s.width/12)).toFixed(4),min_width_in:[0.125,0.1,0.0625,0.05,0.035][d],
-  simplify:[1.8,1.5,1.2,1.0,0.9][d],remove_bg:s.rmbg,labels:s.labels,palette:paletteFor(s,images[cur]&&images[cur].autoColors)};}
+  simplify:[1.8,1.5,1.2,1.0,0.9][d],bg:s.bg||'keep',labels:s.labels,
+  island_fill_in2:[0.12,0.08,0.05,0.025,0.012][d],island_keep_in2:[3,2,1.5,1,0.75][d],max_bridge_in:0.25,palette:paletteFor(s,images[cur]&&images[cur].autoColors)};}
 async function decode(file,wpx){let src;try{src=await createImageBitmap(file,{imageOrientation:'from-image'});}catch(e){
  src=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('Cannot read '+file.name));im.src=URL.createObjectURL(file);});}
  const W=src.width||src.naturalWidth,H=src.height||src.naturalHeight,h=Math.max(1,Math.round(H*wpx/W));
@@ -40,6 +45,8 @@ async function process(i,onp){const im=images[i],s=settingsOf(i),cfg=toCfg(s);if
  if(i!==cur)cfg.palette=paletteFor(s,im.autoColors);const key=JSON.stringify(cfg);if(im.result&&im.key===key)return im.result;
  const wpx=Math.round(cfg.width_in*cfg.dpi),img=await decode(im.file,wpx);if(i===cur)curSrc=img;
  const copy=new Uint8ClampedArray(img.data);
+ if(cfg.bg==='ai'){onp&&onp(0.01,'Finding the subject');const k='m'+img.width;im.aiMask=im.aiMask||{};
+  if(!im.aiMask[k])im.aiMask[k]=await segment(img);const M=im.aiMask[k].mask;for(let p=0;p<M.length;p++)if(!M[p])copy[p*4+3]=0;}
  const r=await runWorker({w:img.width,h:img.height,data:copy,cfg,name:im.name},onp);
  if(!cfg.palette)im.autoColors=r.colors;
  r.compositeUrl=await renderComposite(r);r.previews=[];for(const L of r.layers){r.previews.push(await maskPng(L.mask,r.w,r.h));delete L.mask;}
@@ -56,7 +63,7 @@ async function maskPng(m,w,h){const c=document.createElement('canvas');c.width=w
 const sel=$('palette');[['auto','Auto (from photo)'],['gray','Grayscale'],...Object.keys(PRESETS).map(k=>[k,k]),['custom','Custom']].forEach(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);});
 function editable(){return images.length&&images[cur].override?images[cur].override:batch;}
 function showControls(){const s=editable();$('layers').value=s.layers;$('layersV').textContent=s.layers;sel.value=s.palette;$('detail').value=s.detail;$('detailV').textContent=['Bold','Simple','Normal','Fine','Finest'][s.detail-1];
- $('width').value=s.width;$('widthV').textContent=s.width;$('bridge').value=s.bridge;$('rmbg').checked=s.rmbg;$('labels').checked=s.labels;
+ $('width').value=s.width;$('widthV').textContent=s.width;$('bridge').value=s.bridge;$('bgmode').value=s.bg||'keep';$('labels').checked=s.labels;
  const own=images.length&&images[cur].override;$('scopeTxt').textContent=images.length?(own?'Settings for: this photo only':'Settings for: all photos'):'Settings for: all photos';
  $('resetOne').hidden=!own;$('ownBtn').hidden=!images.length||own;drawSwatches();}
 function drawSwatches(){const s=editable(),im=images[cur],cols=paletteFor(s,im&&im.autoColors)||(im&&im.result&&im.result.colors)||null,box=$('swatches');box.innerHTML='';
@@ -70,12 +77,12 @@ own.onclick=()=>{images[cur].override={...batch,custom:batch.custom&&batch.custo
 $('resetOne').onclick=()=>{images[cur].override=null;showControls();schedule();};
 function bind(id,key,conv,ev='input'){$(id).addEventListener(ev,()=>{const s=editable();s[key]=conv($(id));if(key==='layers'&&s.custom)s.custom=resample(s.custom,s.layers);showControls();schedule();});}
 bind('layers','layers',e=>+e.value);bind('detail','detail',e=>+e.value);bind('width','width',e=>+e.value);
-bind('palette','palette',e=>e.value,'change');bind('bridge','bridge',e=>e.value,'change');bind('rmbg','rmbg',e=>e.checked,'change');bind('labels','labels',e=>e.checked,'change');
+bind('palette','palette',e=>e.value,'change');bind('bridge','bridge',e=>e.value,'change');bind('bgmode','bg',e=>e.value,'change');bind('labels','labels',e=>e.checked,'change');
 let timer=null,gen=0;function schedule(){clearTimeout(timer);timer=setTimeout(preview,350);}
 async function preview(){if(!images.length)return;const g=++gen,i=cur;$('pstatus').textContent='Working…';
  try{const r=await process(i,(f,st)=>{if(g===gen)$('pstatus').textContent=st+'…';});if(g!==gen||i!==cur)return;showResult(r);}catch(e){if(g===gen)$('pstatus').textContent='Error: '+e.message;}}
 function showResult(r){const c=$('comp'),img=new Image();img.onload=()=>{c.width=r.w;c.height=r.h;c.getContext('2d').drawImage(img,0,0);};img.src=r.compositeUrl;
- const isl=r.layers.reduce((a,l)=>a+l.islands,0);$('pstatus').textContent=`${r.layers.length} sheets${r.base?' + base coat '+r.base:''} · ${r.cfg.width_in}in wide · ${(r.ms/1000).toFixed(1)}s`+(isl?` · ${isl} loose pieces!`:' · all sheets one piece');
+ const isl=r.layers.reduce((a,l)=>a+l.islands,0);$('pstatus').textContent=`${r.layers.length} sheets${r.base?' + base coat '+r.base:''} · ${r.cfg.width_in}in wide · ${(r.ms/1000).toFixed(1)}s`+(isl?` · ${isl} loose pieces!`:' · all sheets one piece')+(r.bg&&!r.bg.removed?' · '+r.bg.reason:'');
  const L=$('layerList');L.innerHTML='';r.layers.forEach((l,i)=>{if(!l.url)l.url=URL.createObjectURL(new Blob([l.svg],{type:'image/svg+xml'}));
   const f=document.createElement('figure');f.innerHTML=`<img alt="layer ${i+1}" src="${l.url}"><figcaption>Layer ${i+1} · paint <span style="display:inline-block;width:12px;height:12px;background:${l.color};border:1px solid #0005"></span> ${l.color} · ${l.bridges} bridges</figcaption>`;L.appendChild(f);});drawSwatches();}
 function showImage(){$('preview').hidden=!images.length;if(!images.length)return;$('imgName').textContent=`${cur+1}/${images.length} · ${images[cur].name}`;showControls();
